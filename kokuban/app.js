@@ -2,7 +2,7 @@
 const $ = (id) => document.getElementById(id);
 
 // ---------- 状態の保存（現場・黒板配置・設定は端末内の localStorage） ----------
-const DEF_SETTINGS = { bg: "#000000", alpha: 0.6, font: 1, dateFmt: "ja" };
+const DEF_SETTINGS = { bg: "#000000", alpha: 0.6, font: 1, dateFmt: "ja", autoSave: true };
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 function loadState() {
@@ -208,6 +208,7 @@ $("shutter").onclick = async () => {
   c.getContext("2d").drawImage(vid, 0, 0);
   still = { bmp: await createImageBitmap(c), W: c.width, H: c.height, orig: await toBlob(c, 0.95), ts: Date.now() };
   setMode("still");
+  if (st.settings.autoSave !== false) doSave();
 };
 
 $("nativeBtn").onclick = () => $("fileIn").click();
@@ -219,6 +220,7 @@ $("fileIn").onchange = async (e) => {
   // 元ファイル(f)は加工せずそのまま「文字なし写真」として保存する
   still = { bmp, W: bmp.width, H: bmp.height, orig: f, ts: Date.now() };
   setMode("still");
+  if (st.settings.autoSave !== false) doSave();
 };
 $("retake").onclick = () => { still = null; setMode("live"); };
 
@@ -235,7 +237,8 @@ async function renderFinal() {
   return toBlob(c, 0.95);
 }
 
-$("saveBtn").onclick = async () => {
+$("saveBtn").onclick = () => doSave();
+async function doSave() {
   const d = new Date(still.ts);
   const stamp = `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}_${pad2(d.getHours())}${pad2(d.getMinutes())}${pad2(d.getSeconds())}`;
   const base = `${site().name.replace(/[\\/:*?"<>|\s]/g, "_")}_${stamp}`;
@@ -254,12 +257,46 @@ $("saveBtn").onclick = async () => {
     }
   } catch (e) {
     if (e.name === "AbortError") return; // 共有シートを閉じただけなら撮影画面に戻らない
-    toast("保存に失敗しました");
+    // 撮影直後はiOSが共有シートの自動表示を拒否することがある。その場合は保存ボタンを押してもらう
+    toast(e.name === "NotAllowedError" ? "「保存（2枚）」を押してください" : "保存に失敗しました");
     return;
   }
-  toast("共有シートの「2項目を保存」で写真に保存してください");
+  toast("「2項目を保存」で写真に保存してください");
   still = null; setMode("live");
-};
+}
+
+// ---------- 押している間だけ音声入力（Web Speech API） ----------
+// iOS Safari では認識がAppleのサーバー経由になり、圏外では動かない可能性がある
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null, heard = "";
+function pttStart() {
+  if (!SR) { toast("この端末では使えません。🎤音声（キーボード）を使ってください"); return; }
+  heard = "";
+  rec = new SR();
+  rec.lang = "ja-JP"; rec.interimResults = true; rec.continuous = true;
+  rec.onresult = (e) => {
+    heard = [...e.results].map((r) => r[0].transcript).join("");
+    $("pttBtn").innerHTML = "🎤<br><small>" + heard.slice(-6) + "</small>";
+  };
+  rec.onerror = (e) => toast("音声認識エラー: " + e.error + "（圏外では使えない場合があります）");
+  rec.onend = () => {
+    $("pttBtn").className = "ptt";
+    $("pttBtn").innerHTML = "🎤<br><small>押して話す</small>";
+    if (!heard) return;
+    const cur = site().text;
+    site().text = st.voiceMode === "replace" || !cur.trim() ? heard : cur.replace(/\n+$/, "") + "\n" + heard;
+    memo.value = site().text;
+    saveState(); dirty = true;
+    toast("登録しました");
+  };
+  try { rec.start(); $("pttBtn").className = "ptt rec"; } catch { rec = null; }
+}
+function pttStop() { if (rec) { rec.stop(); rec = null; } }
+const ptt = $("pttBtn");
+ptt.addEventListener("pointerdown", (e) => { ptt.setPointerCapture(e.pointerId); pttStart(); });
+ptt.addEventListener("pointerup", pttStop);
+ptt.addEventListener("pointercancel", pttStop);
+ptt.addEventListener("contextmenu", (e) => e.preventDefault());
 
 // ---------- 撮影内容（音声入力は iPhone キーボードのマイク＝端末内認識を使う） ----------
 const memo = $("memo");
@@ -333,12 +370,15 @@ $("setBtn").onclick = () => {
   <div class="row"><label>透明度</label><input id="sAl" type="range" min="0.2" max="1" step="0.05"></div>
   <div class="row"><label>文字サイズ</label><input id="sFs" type="range" min="0.6" max="1.6" step="0.05"></div>
   <div class="row"><label>日時の形式</label><select id="sDf"><option value="ja">2026年10月15日 14:30</option><option value="iso">2026/10/15 14:30</option></select></div>
+  <div class="row"><label>撮影後</label><label style="width:auto"><input id="sAs" type="checkbox"> すぐ保存画面を出す</label></div>
   <div class="row"><button id="sRs" style="flex:1">この現場の黒板位置を初期化</button><button class="pri" id="sCl">閉じる</button></div>`;
   sheet.querySelector("#sBg").value = s.bg;
   sheet.querySelector("#sAl").value = s.alpha;
   sheet.querySelector("#sFs").value = s.font;
   sheet.querySelector("#sDf").value = s.dateFmt;
+  sheet.querySelector("#sAs").checked = s.autoSave !== false;
   const upd = () => {
+    s.autoSave = sheet.querySelector("#sAs").checked;
     s.bg = sheet.querySelector("#sBg").value; s.alpha = +sheet.querySelector("#sAl").value;
     s.font = +sheet.querySelector("#sFs").value; s.dateFmt = sheet.querySelector("#sDf").value;
     saveState(); dirty = true;
