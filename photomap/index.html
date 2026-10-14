@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="フォトマップ">
+<meta name="theme-color" content="#1f3a5f">
+<title>図面フォトマップ</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.svg">
+<style>
+:root{--bg:#f3f4f6;--fg:#111827;--pri:#1f3a5f;--ok:#16a34a;--sel:#f59e0b;--card:#fff;--line:#d1d5db}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:-apple-system,"Hiragino Sans",sans-serif}
+.screen{display:none;height:100%;flex-direction:column}
+.screen.on{display:flex}
+header{background:var(--pri);color:#fff;padding:calc(env(safe-area-inset-top) + 8px) 12px 8px;display:flex;align-items:center;gap:8px;flex-shrink:0}
+header h1{font-size:17px;margin:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+button,.btn{font:inherit;border:0;border-radius:8px;padding:10px 14px;background:var(--pri);color:#fff}
+header button{background:rgba(255,255,255,.18);padding:8px 10px}
+button.ghost{background:#e5e7eb;color:var(--fg)}
+button.danger{background:#dc2626}
+button.on{background:var(--sel);color:#111}
+button:disabled{opacity:.4}
+#list{padding:12px;overflow:auto;flex:1}
+.card{background:var(--card);border-radius:10px;padding:12px;margin-bottom:10px;display:flex;align-items:center;gap:10px}
+.card .t{flex:1;min-width:0}
+.card .t b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card .t small{color:#6b7280}
+.bar{display:flex;gap:6px;padding:6px 8px;background:#e5e7eb;align-items:center;flex-wrap:wrap;flex-shrink:0}
+.bar input[type=number]{width:52px;font:inherit;padding:6px;border:1px solid var(--line);border-radius:6px}
+.bar .sp{flex:1}
+#view{flex:1;overflow:auto;background:#6b7280;position:relative;-webkit-overflow-scrolling:touch}
+#wrap{position:relative;background:#fff;margin:0}
+#wrap canvas{display:block;width:100%;height:auto}
+#ov{position:absolute;left:0;top:0}
+.foot{display:flex;gap:8px;padding:8px 8px calc(env(safe-area-inset-bottom) + 8px);background:#fff;border-top:1px solid var(--line);flex-shrink:0;align-items:center}
+.foot .info{flex:1;font-size:13px;color:#374151;min-width:0}
+.foot button.shoot{flex:0 0 auto;background:var(--ok);font-size:16px;padding:12px 18px}
+#modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;z-index:10}
+#modal.on{display:flex;flex-direction:column;justify-content:flex-end}
+#sheet{background:#fff;border-radius:14px 14px 0 0;max-height:85%;display:flex;flex-direction:column}
+#sheet .hd{padding:12px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--line)}
+#sheet .hd b{flex:1}
+#grid{padding:8px;overflow:auto;display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+#grid figure{margin:0;position:relative}
+#grid img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;display:block;background:#ddd}
+#grid figcaption{font-size:11px;color:#374151;word-break:break-all}
+#full{padding:8px;overflow:auto;text-align:center}
+#full img{max-width:100%;max-height:60vh;border-radius:6px}
+#full .cap{font-size:13px;margin:6px 0;color:#374151}
+#full .row{display:flex;gap:8px;justify-content:center;margin-top:8px}
+#toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#111;color:#fff;padding:10px 16px;border-radius:20px;font-size:14px;display:none;z-index:20;max-width:90%}
+.empty{color:#6b7280;text-align:center;padding:40px 12px;line-height:1.7}
+</style>
+</head>
+<body>
+
+<section id="home" class="screen on">
+  <header><h1>図面フォトマップ</h1></header>
+  <div id="list"></div>
+  <div class="foot">
+    <input id="pdfIn" type="file" accept="application/pdf" hidden>
+    <button style="flex:1" onclick="pdfIn.click()">＋ PDF図面を追加</button>
+  </div>
+</section>
+
+<section id="draw" class="screen">
+  <header>
+    <button id="back">‹ 戻る</button>
+    <h1 id="dTitle"></h1>
+    <button id="exp">書出</button>
+  </header>
+  <div class="bar">
+    <button id="mShoot" class="on">撮影</button>
+    <button id="mView" class="ghost">確認</button>
+    <span class="sp"></span>
+    <button id="pPrev" class="ghost">◀</button>
+    <span id="pInfo">1/1</span>
+    <button id="pNext" class="ghost">▶</button>
+  </div>
+  <div class="bar">
+    横<input id="gc" type="number" min="1" max="60">
+    縦<input id="gr" type="number" min="1" max="60">
+    <button id="gSet" class="ghost">分割変更</button>
+    <span class="sp"></span>
+    <button id="zOut" class="ghost">－</button>
+    <button id="zIn" class="ghost">＋</button>
+  </div>
+  <div id="view"><div id="wrap"><canvas id="pg"></canvas><canvas id="ov"></canvas></div></div>
+  <div class="foot">
+    <div class="info" id="info"></div>
+    <button id="clr" class="ghost">解除</button>
+    <input id="camIn" type="file" accept="image/*" capture="environment" hidden>
+    <button id="shoot" class="shoot">📷 撮影</button>
+  </div>
+</section>
+
+<div id="modal"><div id="sheet"></div></div>
+<div id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

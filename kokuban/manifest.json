@@ -1,0 +1,1 @@
+{ "name": "電子黒板カメラ", "short_name": "電子黒板", "start_url": "./index.html", "display": "standalone", "orientation": "any", "background_color": "#111827", "theme_color": "#111827", "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }] }

@@ -1,0 +1,9 @@
+{
+  "name": "図面フォトマップ",
+  "short_name": "フォトマップ",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#1f3a5f",
+  "theme_color": "#1f3a5f",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
