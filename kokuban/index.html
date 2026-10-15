@@ -47,6 +47,20 @@ video{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
 .site b{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .site.cur b::before{content:"● ";color:var(--ok)}
 #toast{position:fixed;left:50%;bottom:120px;transform:translateX(-50%);background:#000c;color:#fff;padding:10px 16px;border-radius:20px;font-size:14px;display:none;z-index:20;max-width:90%;text-align:center}
+.top{grid-area:top}.memo{grid-area:memo}#stage{grid-area:stage}#liveBar,#stillBar{grid-area:bar}
+/* 横向き: 左に画面いっぱいのプレビュー、右に操作パネルを縦に並べる */
+@media (orientation:landscape) and (max-height:560px){
+  #app{display:grid;grid-template-columns:1fr 230px;grid-template-rows:auto auto 1fr;
+    grid-template-areas:"stage top" "stage memo" "stage bar";
+    padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}
+  .top{padding-top:6px}
+  .memo textarea{height:44px}
+  .bar{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:6px 10px calc(env(safe-area-inset-bottom) + 6px);align-content:start;overflow-y:auto;min-height:0}
+  .shutter{grid-column:1/-1;justify-self:center;order:-1;width:64px;height:64px}
+  .ptt,#delLineBtn{width:100%}
+  #stillBar button{padding:16px 6px}
+  #toast{bottom:20px}
+}
 </style>
 </head>
 <body>
