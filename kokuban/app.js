@@ -11,9 +11,11 @@ function loadState() {
     if (s && s.sites && s.sites.length) return s;
   } catch {}
   const id = uid();
-  return { sites: [{ id, name: "現場1", text: "", boards: {} }], cur: id, voiceMode: "replace", settings: { ...DEF_SETTINGS } };
+  return { sites: [{ id, name: "現場1", text: "", boards: {} }], cur: id, voiceMode: "append", settings: { ...DEF_SETTINGS } };
 }
 const st = loadState();
+// 既定を「追加」に変更。以前の版で保存済みの設定も一度だけ「追加」に揃える
+if (!st.voiceAppendDefault) { st.voiceMode = "append"; st.voiceAppendDefault = true; }
 const saveState = () => { try { localStorage.setItem("kb_state", JSON.stringify(st)); } catch {} };
 const site = () => st.sites.find((s) => s.id === st.cur) || st.sites[0];
 
@@ -320,6 +322,13 @@ function pttStart() {
   try { rec.start(); $("pttBtn").className = "ptt rec"; } catch { rec = null; }
 }
 function pttStop() { if (rec) { rec.stop(); rec = null; } }
+$("delLineBtn").onclick = () => {
+  const lines = site().text.replace(/\n+$/, "").split("\n");
+  lines.pop();
+  site().text = lines.join("\n");
+  memo.value = site().text;
+  saveState(); dirty = true; invalidate();
+};
 const ptt = $("pttBtn");
 ptt.addEventListener("pointerdown", (e) => { ptt.setPointerCapture(e.pointerId); pttStart(); });
 ptt.addEventListener("pointerup", pttStop);
