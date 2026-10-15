@@ -164,7 +164,7 @@ cv.addEventListener("pointermove", (e) => {
 });
 const endPtr = (e) => {
   ptrs.delete(e.pointerId); pinch0 = null;
-  if (!ptrs.size) saveState();
+  if (!ptrs.size) { saveState(); invalidate(); }
 };
 cv.addEventListener("pointerup", endPtr);
 cv.addEventListener("pointercancel", endPtr);
@@ -208,7 +208,8 @@ $("shutter").onclick = async () => {
   c.getContext("2d").drawImage(vid, 0, 0);
   still = { bmp: await createImageBitmap(c), W: c.width, H: c.height, orig: await toBlob(c, 0.95), ts: Date.now() };
   setMode("still");
-  if (st.settings.autoSave !== false) doSave();
+  invalidate(0);
+  if (st.settings.autoSave !== false) { await still.prep; doSave(); }
 };
 
 $("nativeBtn").onclick = () => $("fileIn").click();
@@ -220,7 +221,9 @@ $("fileIn").onchange = async (e) => {
   // 元ファイル(f)は加工せずそのまま「文字なし写真」として保存する
   still = { bmp, W: bmp.width, H: bmp.height, orig: f, ts: Date.now() };
   setMode("still");
-  if (st.settings.autoSave !== false) doSave();
+  // 標準カメラから戻った直後はiOSが共有シートの自動表示を許可しないので、保存ボタンで保存する
+  invalidate(0);
+  toast("黒板の位置を整えて「保存（2枚）」を押してください");
 };
 $("retake").onclick = () => { still = null; setMode("live"); };
 
@@ -234,18 +237,43 @@ async function renderFinal() {
   g.scale(f, f);
   g.drawImage(still.bmp, 0, 0, still.W, still.H);
   drawBoard(g, still.W, still.H, still.ts);
-  return toBlob(c, 0.95);
+  const blob = await toBlob(c, 0.95);
+  if (!blob) throw new Error("画像の生成に失敗（画像が大きすぎる可能性）");
+  return blob;
+}
+
+// iOSは「ボタンを押した直後」でないと共有シートを開かせない。重い合成を保存ボタンの後に
+// 行うと間に合わず拒否されるため、黒板が変わるたびに先に合成しておき、保存時は即共有する
+let prepTimer;
+function invalidate(delay = 300) {
+  if (!still) return;
+  const s = still;
+  s.files = null; s.ver = (s.ver || 0) + 1;
+  const v = s.ver;
+  clearTimeout(prepTimer);
+  s.prep = new Promise((res) => {
+    prepTimer = setTimeout(async () => {
+      try {
+        const blob = await renderFinal();
+        const d = new Date(s.ts);
+        const stamp = `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}_${pad2(d.getHours())}${pad2(d.getMinutes())}${pad2(d.getSeconds())}`;
+        const base = `${site().name.replace(/[\\/:*?"<>|\s]/g, "_")}_${stamp}`;
+        if (s.ver === v) {
+          s.files = [
+            new File([blob], `${base}_黒板あり.jpg`, { type: "image/jpeg" }),
+            new File([s.orig], `${base}_元写真.jpg`, { type: "image/jpeg" }),
+          ];
+        }
+      } catch (e) { s.prepErr = e; }
+      res();
+    }, delay);
+  });
 }
 
 $("saveBtn").onclick = () => doSave();
 async function doSave() {
-  const d = new Date(still.ts);
-  const stamp = `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}_${pad2(d.getHours())}${pad2(d.getMinutes())}${pad2(d.getSeconds())}`;
-  const base = `${site().name.replace(/[\\/:*?"<>|\s]/g, "_")}_${stamp}`;
-  const files = [
-    new File([await renderFinal()], `${base}_黒板あり.jpg`, { type: "image/jpeg" }),
-    new File([still.orig], `${base}_元写真.jpg`, { type: "image/jpeg" }),
-  ];
+  const files = still.files;
+  if (!files) { toast(still.prepErr ? "画像の生成に失敗: " + still.prepErr.message : "画像を準備中です。少し待ってもう一度押してください"); return; }
   try {
     if (navigator.canShare && navigator.canShare({ files })) {
       await navigator.share({ files });
@@ -258,7 +286,7 @@ async function doSave() {
   } catch (e) {
     if (e.name === "AbortError") return; // 共有シートを閉じただけなら撮影画面に戻らない
     // 撮影直後はiOSが共有シートの自動表示を拒否することがある。その場合は保存ボタンを押してもらう
-    toast(e.name === "NotAllowedError" ? "「保存（2枚）」を押してください" : "保存に失敗しました");
+    toast(e.name === "NotAllowedError" ? "「保存（2枚）」を押してください" : `保存に失敗: ${e.name} ${e.message}`);
     return;
   }
   toast("「2項目を保存」で写真に保存してください");
@@ -301,7 +329,7 @@ ptt.addEventListener("contextmenu", (e) => e.preventDefault());
 // ---------- 撮影内容（音声入力は iPhone キーボードのマイク＝端末内認識を使う） ----------
 const memo = $("memo");
 memo.value = site().text;
-memo.oninput = () => { site().text = memo.value; saveState(); dirty = true; };
+memo.oninput = () => { site().text = memo.value; saveState(); dirty = true; invalidate(); };
 function renderMode() { $("modeBtn").textContent = st.voiceMode === "replace" ? "置換" : "追加"; }
 $("modeBtn").onclick = () => {
   st.voiceMode = st.voiceMode === "replace" ? "append" : "replace";
@@ -381,7 +409,7 @@ $("setBtn").onclick = () => {
     s.autoSave = sheet.querySelector("#sAs").checked;
     s.bg = sheet.querySelector("#sBg").value; s.alpha = +sheet.querySelector("#sAl").value;
     s.font = +sheet.querySelector("#sFs").value; s.dateFmt = sheet.querySelector("#sDf").value;
-    saveState(); dirty = true;
+    saveState(); dirty = true; invalidate();
   };
   sheet.querySelectorAll("select,input").forEach((el) => (el.oninput = upd));
   sheet.querySelector("#sRs").onclick = () => { site().boards = {}; saveState(); dirty = true; toast("初期化しました"); };
