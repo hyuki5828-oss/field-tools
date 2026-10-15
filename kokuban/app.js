@@ -62,7 +62,16 @@ function wrap(ctx, text, maxW) {
   return out;
 }
 
+// 文字の折り返し計算は重いので、内容が変わらない間は前回の結果を使い回す
+let layoutCache = { key: "", val: null };
 function layout(ctx, W, board, ts) {
+  const key = [W, board.w, st.settings.font, site().name, site().text, fmtDate(ts)].join("\u0001");
+  if (layoutCache.key === key) return layoutCache.val;
+  const val = computeLayout(ctx, W, board, ts);
+  layoutCache = { key, val };
+  return val;
+}
+function computeLayout(ctx, W, board, ts) {
   const bw = board.w * W;
   const fs = bw * 0.065 * st.settings.font;
   const pad = fs * 0.7, gap = fs * 0.35;
@@ -112,14 +121,17 @@ let still = null; // { bmp, W, H, orig: Blob|File, ts }
 let view = { s: 1, ox: 0, oy: 0, W: 0, H: 0 };
 let dirty = true;
 
-function frame() {
-  const dpr = window.devicePixelRatio || 1;
+// 発熱対策: ライブ描画は約25fpsに間引き、canvasの解像度は画面密度2倍までに抑える
+let lastDraw = 0;
+function frame(now = 0) {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const w = Math.round(cv.clientWidth * dpr), h = Math.round(cv.clientHeight * dpr);
   if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; dirty = true; }
   let src = null, W = 0, H = 0, ts = Date.now();
   if (mode === "live" && vid.videoWidth) { src = vid; W = vid.videoWidth; H = vid.videoHeight; }
   else if (mode === "still") { src = still.bmp; W = still.W; H = still.H; ts = still.ts; }
-  if (src && (dirty || mode === "live")) {
+  if (src && (dirty || (mode === "live" && now - lastDraw > 40))) {
+    lastDraw = now;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = "#000"; ctx.fillRect(0, 0, w, h);
     const s = Math.min(w / W, h / H);
@@ -173,10 +185,17 @@ cv.addEventListener("pointercancel", endPtr);
 
 // ---------- カメラ ----------
 let track = null;
+function stopCam() {
+  if (vid.srcObject) vid.srcObject.getTracks().forEach((t) => t.stop());
+  vid.srcObject = null; track = null;
+}
 async function startCam() {
+  stopCam();
+  // 4K映像は発熱が大きいので既定はフルHD。高画質は設定で選ぶか「標準カメラ」を使う
+  const hi = st.settings.liveRes === "hi";
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: "environment" }, width: { ideal: 3840 }, height: { ideal: 2160 } },
+      video: { facingMode: { ideal: "environment" }, width: { ideal: hi ? 3840 : 1920 }, height: { ideal: hi ? 2160 : 1080 } },
       audio: false,
     });
     vid.srcObject = stream;
@@ -188,6 +207,11 @@ async function startCam() {
     toast("ライブカメラを起動できません（HTTPS接続が必要）。「標準カメラ」で撮影できます");
   }
 }
+// 画面を離れている間はカメラを止めて発熱・電池消費を抑える
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) stopCam();
+  else startCam();
+});
 let torch = false;
 $("torchBtn").onclick = async () => {
   torch = !torch;
@@ -407,6 +431,7 @@ $("setBtn").onclick = () => {
   <div class="row"><label>透明度</label><input id="sAl" type="range" min="0.2" max="1" step="0.05"></div>
   <div class="row"><label>文字サイズ</label><input id="sFs" type="range" min="0.6" max="1.6" step="0.05"></div>
   <div class="row"><label>日時の形式</label><select id="sDf"><option value="ja">2026年10月15日 14:30</option><option value="iso">2026/10/15 14:30</option></select></div>
+  <div class="row"><label>ライブ画質</label><select id="sLr"><option value="std">標準（発熱を抑える）</option><option value="hi">高画質（4K・発熱大）</option></select></div>
   <div class="row"><label>撮影後</label><label style="width:auto"><input id="sAs" type="checkbox"> すぐ保存画面を出す</label></div>
   <div class="row"><button id="sRs" style="flex:1">この現場の黒板位置を初期化</button><button class="pri" id="sCl">閉じる</button></div>`;
   sheet.querySelector("#sBg").value = s.bg;
@@ -414,7 +439,11 @@ $("setBtn").onclick = () => {
   sheet.querySelector("#sFs").value = s.font;
   sheet.querySelector("#sDf").value = s.dateFmt;
   sheet.querySelector("#sAs").checked = s.autoSave !== false;
+  sheet.querySelector("#sLr").value = s.liveRes || "std";
   const upd = () => {
+    const prevRes = s.liveRes || "std";
+    s.liveRes = sheet.querySelector("#sLr").value;
+    if (s.liveRes !== prevRes) startCam();
     s.autoSave = sheet.querySelector("#sAs").checked;
     s.bg = sheet.querySelector("#sBg").value; s.alpha = +sheet.querySelector("#sAl").value;
     s.font = +sheet.querySelector("#sFs").value; s.dateFmt = sheet.querySelector("#sDf").value;
