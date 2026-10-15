@@ -319,6 +319,47 @@ async function doSave() {
   still = null; setMode("live");
 }
 
+// ---------- 音声認識結果の補正（通り芯の読み・ユーザー辞書） ----------
+// 「ワイに通り」→「Y2通り」のように、現場の言い回しを認識後に直す
+const KANA_NUM = { じゅう: 10, きゅう: 9, いち: 1, さん: 3, よん: 4, ろく: 6, なな: 7, しち: 7, はち: 8, に: 2, し: 4, ご: 5, く: 9 };
+const KANJI_DIGIT = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+function kanjiToNum(s) {
+  if (s === "十") return 10;
+  const m = s.match(/^([一二三四五六七八九]?)十([一二三四五六七八九]?)$/);
+  if (m) return (m[1] ? KANJI_DIGIT[m[1]] : 1) * 10 + (m[2] ? KANJI_DIGIT[m[2]] : 0);
+  return KANJI_DIGIT[s];
+}
+// 「ワイヤー」など別の語を巻き込まないよう、軸の文字の直後に数字が続くときだけ変換する。
+// ひらがなの数字（に・さん等）は、通り／と／の／から等が続くときだけ数字とみなす
+const AXIS_RE = new RegExp(
+  "(^|[^A-Za-z])(エックス|えっくす|ワイ|わい|ゼット|ぜっと|[XYZxyz])\\s*" +
+  "([0-9]{1,2}|[一二三四五六七八九十]{1,3}|(?:じゅう|きゅう|いち|さん|よん|ろく|なな|しち|はち|に|し|ご|く)(?=通り|と|の|から|まで|間|交|[、。,\\s]|$))",
+  "g"
+);
+function normalizeAxis(s) {
+  s = s.replace(/[Ａ-Ｚａ-ｚ０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
+  const letter = (w) => (/^(エックス|えっくす)$/.test(w) ? "X" : /^(ワイ|わい)$/.test(w) ? "Y" : /^(ゼット|ぜっと)$/.test(w) ? "Z" : w.toUpperCase());
+  const num = (n) => (/^[0-9]+$/.test(n) ? String(+n) : /^[一二三四五六七八九十]+$/.test(n) ? kanjiToNum(n) : KANA_NUM[n]);
+  // 「Y3とY4」のように連続すると区切り文字を共有するので2回かける
+  for (let i = 0; i < 2; i++) s = s.replace(AXIS_RE, (_, pre, l, n) => pre + letter(l) + num(n));
+  return s;
+}
+function fixText(s) {
+  s = normalizeAxis(s);
+  for (const line of (st.dict || "").split("\n")) {
+    const i = line.search(/[=＝→]/);
+    if (i <= 0) continue;
+    const from = line.slice(0, i).trim(), to = line.slice(i + 1).trim();
+    if (from) s = s.split(from).join(to);
+  }
+  return s;
+}
+// キーボードの音声入力・手入力は、入力欄を離れたときにまとめて補正する（入力中に書き換えるとカーソルが乱れる）
+function onMemoChange() {
+  const fixed = fixText(memo.value);
+  if (fixed !== memo.value) { memo.value = fixed; memo.oninput(); }
+}
+
 // ---------- 押している間だけ音声入力（Web Speech API） ----------
 // iOS Safari では認識がAppleのサーバー経由になり、圏外では動かない可能性がある
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -337,8 +378,9 @@ function pttStart() {
     $("pttBtn").className = "ptt";
     $("pttBtn").innerHTML = "🎤<br><small>押して話す</small>";
     if (!heard) return;
+    const text = fixText(heard);
     const cur = site().text;
-    site().text = st.voiceMode === "replace" || !cur.trim() ? heard : cur.replace(/\n+$/, "") + "\n" + heard;
+    site().text = st.voiceMode === "replace" || !cur.trim() ? text : cur.replace(/\n+$/, "") + "\n" + text;
     memo.value = site().text;
     saveState(); dirty = true;
     toast("登録しました");
@@ -363,6 +405,7 @@ ptt.addEventListener("contextmenu", (e) => e.preventDefault());
 const memo = $("memo");
 memo.value = site().text;
 memo.oninput = () => { site().text = memo.value; saveState(); dirty = true; invalidate(); };
+memo.onchange = onMemoChange;
 function renderMode() { $("modeBtn").textContent = st.voiceMode === "replace" ? "置換" : "追加"; }
 $("modeBtn").onclick = () => {
   st.voiceMode = st.voiceMode === "replace" ? "append" : "replace";
@@ -431,6 +474,7 @@ $("setBtn").onclick = () => {
   <div class="row"><label>透明度</label><input id="sAl" type="range" min="0.2" max="1" step="0.05"></div>
   <div class="row"><label>文字サイズ</label><input id="sFs" type="range" min="0.6" max="1.6" step="0.05"></div>
   <div class="row"><label>日時の形式</label><select id="sDf"><option value="ja">2026年10月15日 14:30</option><option value="iso">2026/10/15 14:30</option></select></div>
+  <div class="row" style="align-items:flex-start"><label>単語登録</label><textarea id="sDict" rows="4" style="flex:1;font:inherit;font-size:14px;padding:6px" placeholder="1行に1つ（誤認識=正しい表記）&#10;例）ぶんでんばん=分電盤"></textarea></div>
   <div class="row"><label>ライブ画質</label><select id="sLr"><option value="std">標準（発熱を抑える）</option><option value="hi">高画質（4K・発熱大）</option></select></div>
   <div class="row"><label>撮影後</label><label style="width:auto"><input id="sAs" type="checkbox"> すぐ保存画面を出す</label></div>
   <div class="row"><button id="sRs" style="flex:1">この現場の黒板位置を初期化</button><button class="pri" id="sCl">閉じる</button></div>`;
@@ -440,7 +484,9 @@ $("setBtn").onclick = () => {
   sheet.querySelector("#sDf").value = s.dateFmt;
   sheet.querySelector("#sAs").checked = s.autoSave !== false;
   sheet.querySelector("#sLr").value = s.liveRes || "std";
+  sheet.querySelector("#sDict").value = st.dict || "";
   const upd = () => {
+    st.dict = sheet.querySelector("#sDict").value;
     const prevRes = s.liveRes || "std";
     s.liveRes = sheet.querySelector("#sLr").value;
     if (s.liveRes !== prevRes) startCam();
@@ -449,7 +495,7 @@ $("setBtn").onclick = () => {
     s.font = +sheet.querySelector("#sFs").value; s.dateFmt = sheet.querySelector("#sDf").value;
     saveState(); dirty = true; invalidate();
   };
-  sheet.querySelectorAll("select,input").forEach((el) => (el.oninput = upd));
+  sheet.querySelectorAll("select,input,textarea").forEach((el) => (el.oninput = upd));
   sheet.querySelector("#sRs").onclick = () => { site().boards = {}; saveState(); dirty = true; toast("初期化しました"); };
   sheet.querySelector("#sCl").onclick = closeModal;
   modal.classList.add("on");
