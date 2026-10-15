@@ -12,6 +12,8 @@
 <style>
 :root{--bg:#111827;--panel:#1f2937;--fg:#f3f4f6;--pri:#2563eb;--ok:#16a34a;--ng:#dc2626}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{touch-action:manipulation;-webkit-text-size-adjust:100%}
+input,select,textarea,button{font-size:16px}
 html,body{margin:0;height:100%;background:#000;color:var(--fg);font-family:-apple-system,"Hiragino Sans",sans-serif;overflow:hidden;overscroll-behavior:none}
 #app{display:flex;flex-direction:column;height:100%}
 .top{display:flex;gap:8px;align-items:center;padding:calc(env(safe-area-inset-top) + 6px) 10px 6px;background:var(--bg);flex-shrink:0}

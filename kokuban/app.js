@@ -474,7 +474,7 @@ $("setBtn").onclick = () => {
   <div class="row"><label>透明度</label><input id="sAl" type="range" min="0.2" max="1" step="0.05"></div>
   <div class="row"><label>文字サイズ</label><input id="sFs" type="range" min="0.6" max="1.6" step="0.05"></div>
   <div class="row"><label>日時の形式</label><select id="sDf"><option value="ja">2026年10月15日 14:30</option><option value="iso">2026/10/15 14:30</option></select></div>
-  <div class="row" style="align-items:flex-start"><label>単語登録</label><textarea id="sDict" rows="4" style="flex:1;font:inherit;font-size:14px;padding:6px" placeholder="1行に1つ（誤認識=正しい表記）&#10;例）ぶんでんばん=分電盤"></textarea></div>
+  <div class="row" style="align-items:flex-start"><label>単語登録</label><textarea id="sDict" rows="4" style="flex:1;font:inherit;font-size:16px;padding:6px" placeholder="1行に1つ（誤認識=正しい表記）&#10;例）ぶんでんばん=分電盤"></textarea></div>
   <div class="row"><label>ライブ画質</label><select id="sLr"><option value="std">標準（発熱を抑える）</option><option value="hi">高画質（4K・発熱大）</option></select></div>
   <div class="row"><label>撮影後</label><label style="width:auto"><input id="sAs" type="checkbox"> すぐ保存画面を出す</label></div>
   <div class="row"><button id="sRs" style="flex:1">この現場の黒板位置を初期化</button><button class="pri" id="sCl">閉じる</button></div>`;
@@ -500,6 +500,10 @@ $("setBtn").onclick = () => {
   sheet.querySelector("#sCl").onclick = closeModal;
   modal.classList.add("on");
 };
+
+// ---------- 誤拡大の防止（iOSはviewportのuser-scalable=noを無視するため、ジェスチャ自体を止める） ----------
+["gesturestart", "gesturechange", "gestureend"].forEach((t) => document.addEventListener(t, (e) => e.preventDefault()));
+document.addEventListener("dblclick", (e) => e.preventDefault());
 
 // ---------- 起動 ----------
 refreshSite();
